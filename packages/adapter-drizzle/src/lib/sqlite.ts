@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm"
+import { eq, and, InferInsertModel } from "drizzle-orm"
 import {
   integer,
   sqliteTable as defaultSqliteTableFn,
@@ -62,7 +62,41 @@ export function createTables(sqliteTable: SQLiteTableFn) {
     })
   )
 
-  return { users, accounts, sessions, verificationTokens }
+  // const authenticators = mySqlTable(
+  //     "authenticator",
+  //     {
+  //       id: varchar("id", { length: 255 }).notNull().primaryKey(),
+  //       credentialID: varchar("credentialID", { length: 255 }).notNull(),
+  //       userId: varchar("userId", { length: 255 })
+  //         .notNull()
+  //         .references(() => users.id, { onDelete: "cascade" }),
+  //       providerAccountId: varchar("providerAccountId", { length: 255 }).notNull(),
+  //       credentialPublicKey: varchar("credentialPublicKey", { length: 255 }).notNull(),
+  //       counter: int("counter").notNull(),
+  //       credentialDeviceType: varchar("credentialDeviceType", { length: 255 }).notNull(),
+  //       credentialBackedUp: varchar("credentialBackedUp", { length: 255 }).notNull(),
+  //       transports: varchar("transports", { length: 255 }).notNull(),
+  //     }
+  //   )
+
+  const authenticators = sqliteTable(
+    "authenticator",
+    {
+      id: text("id").notNull().primaryKey(),
+      credentialID: text("credentialID").notNull(),
+      userId: text("userId")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+      providerAccountId: text("providerAccountId").notNull(),
+      credentialPublicKey: text("credentialPublicKey").notNull(),
+      counter: integer("counter").notNull(),
+      credentialDeviceType: text("credentialDeviceType").notNull(),
+      credentialBackedUp: text("credentialBackedUp").notNull(),
+      transports: text("transports").notNull(),
+    }
+  )
+
+  return { users, accounts, sessions, verificationTokens, authenticators }
 }
 
 export type DefaultSchema = ReturnType<typeof createTables>
@@ -71,7 +105,7 @@ export function SQLiteDrizzleAdapter(
   client: InstanceType<typeof BaseSQLiteDatabase>,
   tableFn = defaultSqliteTableFn
 ): Adapter {
-  const { users, accounts, sessions, verificationTokens } =
+  const { users, accounts, sessions, verificationTokens, authenticators } =
     createTables(tableFn)
 
   return {
@@ -207,5 +241,45 @@ export function SQLiteDrizzleAdapter(
         )
         .run()
     },
+    async getAccount(providerAccountId: string, provider: string) {
+      await client
+        .select()
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.providerAccountId, providerAccountId),
+            eq(accounts.provider, provider)
+          )
+        )
+    },
+    async createAuthenticator(authenticator: InferInsertModel<typeof authenticators>) {
+      return await client.insert(authenticators).values(authenticator).returning().then((res) => res[0])
+    },
+    async getAuthenticator(credentialID: string) {
+      const authenticator =
+        (await client
+          .select()
+          .from(authenticators)
+          .where(eq(authenticators.credentialID, credentialID))
+          .then((res) => res[0])) ?? null
+
+      return authenticator
+    },
+    async listAuthenticatorsByUserId(userId: string) {
+      const selectedAuthenticators = await client
+        .select()
+        .from(authenticators)
+        .where(eq(authenticators.userId, userId))
+
+      return selectedAuthenticators
+    },
+    async updateAuthenticatorCounter(credentialID: string, counter: number) {
+      return await client
+        .update(authenticators)
+        .set({ counter })
+        .where(eq(authenticators.credentialID, credentialID))
+        .returning()
+        .then((res) => res[0])
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, InferInsertModel } from "drizzle-orm"
 import {
   timestamp,
   pgTable as defaultPgTableFn,
@@ -63,7 +63,19 @@ export function createTables(pgTable: PgTableFn) {
     })
   )
 
-  return { users, accounts, sessions, verificationTokens }
+  const authenticators = pgTable('authenticator', {
+    id: text('id').notNull().primaryKey(),
+    credentialID: text('credentialID').notNull(),
+    userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    providerAccountId: text('providerAccountId').notNull(),
+    credentialPublicKey: text('credentialPublicKey').notNull(),
+    counter: integer('counter').notNull(),
+    credentialDeviceType: text('credentialDeviceType').notNull(),
+    credentialBackedUp: text('credentialBackedUp').notNull(),
+    transports: text('transports').notNull(),
+  })
+
+  return { users, accounts, sessions, verificationTokens, authenticators }
 }
 
 export type DefaultSchema = ReturnType<typeof createTables>
@@ -72,7 +84,7 @@ export function pgDrizzleAdapter(
   client: InstanceType<typeof PgDatabase>,
   tableFn = defaultPgTableFn
 ): Adapter {
-  const { users, accounts, sessions, verificationTokens } =
+  const { users, accounts, sessions, verificationTokens, authenticators } =
     createTables(tableFn)
 
   return {
@@ -213,5 +225,45 @@ export function pgDrizzleAdapter(
 
       return { provider, type, providerAccountId, userId }
     },
+    async getAccount(providerAccountId: string, provider: string) {
+      await client
+        .select()
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.providerAccountId, providerAccountId),
+            eq(accounts.provider, provider)
+          )
+        )
+    },
+    async createAuthenticator(authenticator: InferInsertModel<typeof authenticators>) {
+      return await client.insert(authenticators).values(authenticator).returning().then((res) => res[0])
+    },
+    async getAuthenticator(credentialID: string) {
+      const authenticator =
+        (await client
+          .select()
+          .from(authenticators)
+          .where(eq(authenticators.credentialID, credentialID))
+          .then((res) => res[0])) ?? null
+
+      return authenticator
+    },
+    async listAuthenticatorsByUserId(userId: string) {
+      const selectedAuthenticators = await client
+        .select()
+        .from(authenticators)
+        .where(eq(authenticators.userId, userId))
+
+      return selectedAuthenticators
+    },
+    async updateAuthenticatorCounter(credentialID: string, counter: number) {
+      return await client
+        .update(authenticators)
+        .set({ counter })
+        .where(eq(authenticators.credentialID, credentialID))
+        .returning()
+        .then((res) => res[0])
+    }
   }
 }
