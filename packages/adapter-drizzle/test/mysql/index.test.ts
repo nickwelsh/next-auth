@@ -1,6 +1,6 @@
 import { runBasicTests } from "utils/adapter"
 import { DrizzleAdapter } from "../../src"
-import { db, sessions, verificationTokens, accounts, users } from "./schema"
+import { db, sessions, verificationTokens, accounts, users, authenticators } from "./schema"
 import { eq, and } from "drizzle-orm"
 import { fixtures } from "../fixtures"
 
@@ -14,6 +14,7 @@ runBasicTests({
         db.delete(accounts),
         db.delete(verificationTokens),
         db.delete(users),
+        db.delete(authenticators)
       ])
     },
     disconnect: async () => {
@@ -22,6 +23,7 @@ runBasicTests({
         db.delete(accounts),
         db.delete(verificationTokens),
         db.delete(users),
+        db.delete(authenticators)
       ])
     },
     user: async (id) => {
